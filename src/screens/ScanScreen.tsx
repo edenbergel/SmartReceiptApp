@@ -14,18 +14,7 @@ import { colors } from '../theme/colors';
 import { useAppDispatch } from '../hooks/useRedux';
 import { completeScan, startScan } from '../store/scanSlice';
 import type { RootStackParamList } from '../navigation/types';
-
-const mockMerchants = ['Carrefour Market', 'FNAC', 'Monoprix', 'Starbucks'];
-const mockCategories = ['Food', 'Transport', 'Office', 'Entertainment'];
-
-function getMockData() {
-  const merchant = mockMerchants[Math.floor(Math.random() * mockMerchants.length)];
-  const category = mockCategories[Math.floor(Math.random() * mockCategories.length)];
-  const amount = Number((Math.random() * 120 + 5).toFixed(2));
-  const date = new Date().toISOString().split('T')[0];
-
-  return { merchant, category, amount, date };
-}
+import { uploadReceipt } from '../services/ocr';
 
 export function ScanScreen({ navigation }: NativeStackScreenProps<RootStackParamList, 'Scan'>) {
   const [selectedImage, setSelectedImage] = useState<string | undefined>();
@@ -33,22 +22,33 @@ export function ScanScreen({ navigation }: NativeStackScreenProps<RootStackParam
   const dispatch = useAppDispatch();
 
   const processImage = useCallback(
-    async (uri: string) => {
+    async (asset: ImagePicker.ImagePickerAsset) => {
+      const { uri, mimeType, type, fileName } = asset;
+      setSelectedImage(uri);
       dispatch(startScan());
       setIsProcessing(true);
 
-      // Simulate OCR delay
-      setTimeout(() => {
-        const mockData = getMockData();
+      try {
+        const response = await uploadReceipt({
+          uri,
+          filename: fileName ?? 'receipt.jpg',
+          mimeType: mimeType ?? (type === 'video' ? 'video/mp4' : 'image/jpeg'),
+        });
+
         dispatch(
           completeScan({
-            ...mockData,
+            ...response,
             imageUri: uri,
           }),
         );
-        setIsProcessing(false);
         navigation.navigate('Result');
-      }, 1800);
+      } catch (error) {
+        console.error('[OCR] upload failed', error);
+        const message = error instanceof Error ? error.message : "Impossible de traiter le reçu.";
+        Alert.alert('Erreur OCR', message);
+      } finally {
+        setIsProcessing(false);
+      }
     },
     [dispatch, navigation],
   );
@@ -84,10 +84,8 @@ export function ScanScreen({ navigation }: NativeStackScreenProps<RootStackParam
       mediaTypes: 'images',
     });
 
-    if (!result.canceled && result.assets?.[0]?.uri) {
-      const uri = result.assets[0].uri;
-      setSelectedImage(uri);
-      await processImage(uri);
+    if (!result.canceled && result.assets?.[0]) {
+      await processImage(result.assets[0]);
     }
   };
 
@@ -102,10 +100,8 @@ export function ScanScreen({ navigation }: NativeStackScreenProps<RootStackParam
       mediaTypes: 'images',
     });
 
-    if (!result.canceled && result.assets?.[0]?.uri) {
-      const uri = result.assets[0].uri;
-      setSelectedImage(uri);
-      await processImage(uri);
+    if (!result.canceled && result.assets?.[0]) {
+      await processImage(result.assets[0]);
     }
   };
 

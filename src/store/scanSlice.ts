@@ -8,6 +8,7 @@ export interface ExtractedData {
   amount: number;
   category: string;
   imageUri?: string;
+  rawText?: string;
 }
 
 interface ScanState {

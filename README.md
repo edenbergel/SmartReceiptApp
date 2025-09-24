@@ -14,6 +14,28 @@ npm start
 
 Then press `i` for iOS simulator, `a` for Android emulator, or scan the QR code with Expo Go.
 
+To point the app to your OCR backend, create a `.env` file using the provided example:
+
+```bash
+cp .env.example .env
+# Update the URL if your backend runs elsewhere
+```
+
+Expo automatically injects the `EXPO_PUBLIC_OCR_URL` variable into the app bundle.
+
+## OCR Development Server
+
+This repository ships with a lightweight Express server that performs OCR using `tesseract.js`.
+
+```bash
+cd server
+npm install
+npm start
+# Server listens on http://localhost:4000 by default
+```
+
+The mobile app expects an `EXPO_PUBLIC_OCR_URL` (defaults to `http://localhost:4000/ocr`). When running on a physical device, replace `localhost` with your machine’s LAN IP.
+
 ## Project Structure
 
 ```
