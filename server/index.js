@@ -1,6 +1,9 @@
+import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import multer from 'multer';
+import FormData from 'form-data';
+import fetch from 'node-fetch';
 import Tesseract from 'tesseract.js';
 
 const PORT = process.env.PORT ?? 4000;
@@ -13,6 +16,11 @@ const upload = multer({
   limits: { fileSize: 6 * 1024 * 1024 },
 });
 
+const MINDEE_API_KEY = process.env.MINDEE_API_KEY;
+const MINDEE_ENDPOINT =
+  process.env.MINDEE_ENDPOINT ??
+  'https://api.mindee.net/v1/products/mindee/expense_receipts/v4/predict';
+
 app.get('/', (_req, res) => {
   res.json({ status: 'ok', message: 'SmartReceipt OCR service' });
 });
@@ -22,12 +30,11 @@ app.post('/ocr', upload.single('receipt'), async (req, res) => {
     if (!req.file) {
       return res.status(400).json({ error: 'Missing receipt file' });
     }
+    const fields = MINDEE_API_KEY
+      ? await processWithMindee(req.file)
+      : await processWithTesseract(req.file);
 
-    const imageBuffer = req.file.buffer;
-    const { data } = await Tesseract.recognize(imageBuffer, 'eng');
-    const fields = extractStructuredData(data.text);
-
-    res.json({ ...fields, rawText: data.text });
+    res.json(fields);
   } catch (error) {
     console.error('[OCR] Failed to process receipt', error);
     res.status(500).json({ error: 'Failed to process receipt' });
@@ -37,6 +44,47 @@ app.post('/ocr', upload.single('receipt'), async (req, res) => {
 app.listen(PORT, () => {
   console.log(`SmartReceipt OCR server listening on http://localhost:${PORT}`);
 });
+
+async function processWithTesseract(file) {
+  const { data } = await Tesseract.recognize(file.buffer, 'eng');
+  const fields = extractStructuredData(data.text);
+  return { ...fields, rawText: data.text };
+}
+
+async function processWithMindee(file) {
+  if (!MINDEE_API_KEY) {
+    throw new Error('Mindee API key is not configured');
+  }
+
+  const formData = new FormData();
+  formData.append('document', file.buffer, {
+    filename: file.originalname ?? 'receipt.jpg',
+    contentType: file.mimetype ?? 'image/jpeg',
+  });
+
+  const response = await fetch(MINDEE_ENDPOINT, {
+    method: 'POST',
+    headers: {
+      Authorization: `Token ${MINDEE_API_KEY}`,
+      ...formData.getHeaders(),
+    },
+    body: formData,
+  });
+
+  if (!response.ok) {
+    const payload = await safeJson(response);
+    throw new Error(payload?.api_request?.error?.details ?? 'Mindee request failed');
+  }
+
+  const payload = await response.json();
+  const prediction = payload?.document?.inference?.prediction;
+
+  if (!prediction) {
+    throw new Error('Mindee response missing prediction data');
+  }
+
+  return mapMindeePrediction(prediction, payload);
+}
 
 function extractStructuredData(text) {
   const lines = text
@@ -117,4 +165,57 @@ function inferCategory(merchant, text) {
   }
 
   return 'Other';
+}
+
+function mapMindeePrediction(prediction, payload) {
+  const {
+    supplier_name,
+    locale,
+    total_amount,
+    date,
+    expense_category,
+    document_tax_fields,
+  } = prediction;
+
+  const merchant = supplier_name?.value?.trim() || 'Unknown Merchant';
+  const rawAmount = total_amount?.value ?? 0;
+  const amount = typeof rawAmount === 'number' ? rawAmount : Number.parseFloat(rawAmount) || 0;
+  const category = expense_category?.value ?? inferCategory(merchant, '') ?? 'Other';
+  const parsedDate = normalizeMindeeDate(date?.value, locale?.value);
+
+  const rawText = payload?.document?.inference?.pages
+    ?.map((page) => page?.all_words?.map((word) => word?.text).join(' '))
+    .join('\n') ?? null;
+
+  return {
+    merchant,
+    date: parsedDate,
+    amount,
+    category,
+    rawText: rawText ?? undefined,
+  };
+}
+
+function normalizeMindeeDate(raw, locale) {
+  if (!raw) {
+    const today = new Date();
+    return today.toISOString().split('T')[0];
+  }
+
+  // Mindee returns ISO-like YYYY-MM-DD by default
+  if (/\d{4}-\d{2}-\d{2}/.test(raw)) {
+    const [year, month, day] = raw.split('-');
+    return `${day}/${month}/${year}`;
+  }
+
+  // fallback to existing logic
+  return inferDate(raw);
+}
+
+async function safeJson(response) {
+  try {
+    return await response.json();
+  } catch (error) {
+    return null;
+  }
 }

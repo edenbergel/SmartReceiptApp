@@ -30,9 +30,14 @@ This repository ships with a lightweight Express server that performs OCR using 
 ```bash
 cd server
 npm install
+# (optional) copy env file if you want to use Mindee
+cp .env.example .env
+# export MINDEE_API_KEY=... or edit .env
 npm start
 # Server listens on http://localhost:4000 by default
 ```
+
+If you add a `MINDEE_API_KEY` (Mindee receipt OCR) the server forwards requests to Mindee for higher accuracy. Without a key it falls back to local Tesseract parsing.
 
 The mobile app expects an `EXPO_PUBLIC_OCR_URL` (defaults to `http://localhost:4000/ocr`). When running on a physical device, replace `localhost` with your machine’s LAN IP.
 
