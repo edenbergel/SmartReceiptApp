@@ -369,42 +369,58 @@ export function normalizeMindeeDate(raw, locale) {
 }
 
 export function normalizeMindeeLineItems(field) {
-  const unwrapped = unwrapMindeeValue(field);
-  if (!Array.isArray(unwrapped)) {
-    return [];
+  let items = unwrapMindeeValue(field);
+  if (!Array.isArray(items)) {
+    if (Array.isArray(field)) {
+      items = field;
+    } else if (field && Array.isArray(field.items)) {
+      items = field.items;
+    } else if (field && Array.isArray(field.value)) {
+      items = field.value;
+    } else {
+      return [];
+    }
   }
 
-  return unwrapped
+  return items
     .map((rawItem) => {
       if (!rawItem || typeof rawItem !== 'object') {
         return undefined;
       }
 
-      const description =
+      const descriptionValue = unwrapMindeeValue(
         rawItem.description ??
-        rawItem.product ??
-        rawItem.name ??
-        rawItem.title ??
-        rawItem.label ??
-        'Article';
+          rawItem.product ??
+          rawItem.name ??
+          rawItem.title ??
+          rawItem.label ??
+          rawItem,
+      );
+      const description = typeof descriptionValue === 'string' && descriptionValue.trim().length > 0
+        ? descriptionValue.trim()
+        : 'Article';
 
-      const quantityRaw = rawItem.quantity ?? rawItem.qty ?? rawItem.count;
-      const quantity = Number.isFinite(Number(quantityRaw)) ? Number(quantityRaw) : undefined;
+      const quantity = toOptionalNumber(
+        unwrapMindeeValue(rawItem.quantity ?? rawItem.qty ?? rawItem.count ?? rawItem.quantity_value),
+      );
 
-      const unitPriceRaw = rawItem.unit_price ?? rawItem.unitPrice ?? rawItem.price_unit ?? rawItem.price;
-      const unitPrice = Number.isFinite(Number(unitPriceRaw)) ? Number(unitPriceRaw) : undefined;
+      const unitPrice = toOptionalNumber(
+        unwrapMindeeValue(rawItem.unit_price ?? rawItem.unitPrice ?? rawItem.price_unit ?? rawItem.price),
+      );
 
-      const totalRaw =
-        rawItem.total_incl ??
-        rawItem.total_excl ??
-        rawItem.total ??
-        rawItem.amount ??
-        rawItem.value ??
-        (quantity && unitPrice ? quantity * unitPrice : undefined);
-      const total = Number.isFinite(Number(totalRaw)) ? Number(totalRaw) : undefined;
+      const total = toOptionalNumber(
+        unwrapMindeeValue(
+          rawItem.total_incl ??
+            rawItem.total_excl ??
+            rawItem.total ??
+            rawItem.amount ??
+            rawItem.value ??
+            (quantity != null && unitPrice != null ? quantity * unitPrice : undefined),
+        ),
+      );
 
       return {
-        description: typeof description === 'string' && description.trim().length > 0 ? description.trim() : 'Article',
+        description,
         quantity,
         unitPrice,
         total,
@@ -415,4 +431,12 @@ export function normalizeMindeeLineItems(field) {
 
 export function normalizeCategoryHintForMindee(value) {
   return normalizeCategoryHint(value);
+}
+
+function toOptionalNumber(value) {
+  if (value == null) {
+    return undefined;
+  }
+  const numeric = typeof value === 'string' ? Number(value.replace(/[^0-9.-]/g, '')) : Number(value);
+  return Number.isFinite(numeric) ? numeric : undefined;
 }
