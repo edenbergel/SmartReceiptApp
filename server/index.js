@@ -2,9 +2,8 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import multer from 'multer';
-import FormData from 'form-data';
-import fetch from 'node-fetch';
 import Tesseract from 'tesseract.js';
+import { ClientV2, BufferInput } from 'mindee';
 
 const PORT = process.env.PORT ?? 4000;
 const app = express();
@@ -17,9 +16,10 @@ const upload = multer({
 });
 
 const MINDEE_API_KEY = process.env.MINDEE_API_KEY;
-const MINDEE_ENDPOINT =
-  process.env.MINDEE_ENDPOINT ??
-  'https://api.mindee.net/v1/products/mindee/expense_receipts/v4/predict';
+const MINDEE_MODEL_ID = process.env.MINDEE_MODEL_ID;
+const mindeeClient = MINDEE_API_KEY
+  ? new ClientV2({ apiKey: MINDEE_API_KEY })
+  : undefined;
 
 app.get('/', (_req, res) => {
   res.json({ status: 'ok', message: 'SmartReceipt OCR service' });
@@ -37,12 +37,20 @@ app.post('/ocr', upload.single('receipt'), async (req, res) => {
     res.json(fields);
   } catch (error) {
     console.error('[OCR] Failed to process receipt', error);
-    res.status(500).json({ error: 'Failed to process receipt' });
+    res.status(500).json({
+      error: 'Failed to process receipt',
+      details: error instanceof Error ? error.message : String(error),
+    });
   }
 });
 
 app.listen(PORT, () => {
   console.log(`SmartReceipt OCR server listening on http://localhost:${PORT}`);
+  if (MINDEE_API_KEY) {
+    console.log('Mindee integration enabled.');
+  } else {
+    console.log('Mindee integration disabled; using local Tesseract fallback.');
+  }
 });
 
 async function processWithTesseract(file) {
@@ -51,39 +59,36 @@ async function processWithTesseract(file) {
   return { ...fields, rawText: data.text };
 }
 
+
 async function processWithMindee(file) {
-  if (!MINDEE_API_KEY) {
+  if (!mindeeClient) {
     throw new Error('Mindee API key is not configured');
   }
-
-  const formData = new FormData();
-  formData.append('document', file.buffer, {
-    filename: file.originalname ?? 'receipt.jpg',
-    contentType: file.mimetype ?? 'image/jpeg',
-  });
-
-  const response = await fetch(MINDEE_ENDPOINT, {
-    method: 'POST',
-    headers: {
-      Authorization: `Token ${MINDEE_API_KEY}`,
-      ...formData.getHeaders(),
-    },
-    body: formData,
-  });
-
-  if (!response.ok) {
-    const payload = await safeJson(response);
-    throw new Error(payload?.api_request?.error?.details ?? 'Mindee request failed');
+  if (!MINDEE_MODEL_ID) {
+    throw new Error('Mindee model ID is not configured');
   }
 
-  const payload = await response.json();
-  const prediction = payload?.document?.inference?.prediction;
+  const input = new BufferInput({
+    buffer: file.buffer,
+    filename: file.originalname ?? 'receipt.jpg',
+  });
 
+  const response = await mindeeClient.enqueueAndGetInference(input, {
+    modelId: MINDEE_MODEL_ID,
+    pollingOptions: {
+      initialDelaySec: 1,
+      delaySec: 1,
+      maxRetries: 20,
+    },
+  });
+
+  const prediction = response?.document?.inference?.prediction;
   if (!prediction) {
+    console.error('Mindee payload unexpected', JSON.stringify(response, null, 2));
     throw new Error('Mindee response missing prediction data');
   }
 
-  return mapMindeePrediction(prediction, payload);
+  return mapMindeePrediction(prediction, response.document);
 }
 
 function extractStructuredData(text) {
@@ -167,7 +172,7 @@ function inferCategory(merchant, text) {
   return 'Other';
 }
 
-function mapMindeePrediction(prediction, payload) {
+function mapMindeePrediction(prediction, document) {
   const {
     supplier_name,
     locale,
@@ -183,7 +188,7 @@ function mapMindeePrediction(prediction, payload) {
   const category = expense_category?.value ?? inferCategory(merchant, '') ?? 'Other';
   const parsedDate = normalizeMindeeDate(date?.value, locale?.value);
 
-  const rawText = payload?.document?.inference?.pages
+  const rawText = document?.inference?.pages
     ?.map((page) => page?.all_words?.map((word) => word?.text).join(' '))
     .join('\n') ?? null;
 
@@ -210,12 +215,4 @@ function normalizeMindeeDate(raw, locale) {
 
   // fallback to existing logic
   return inferDate(raw);
-}
-
-async function safeJson(response) {
-  try {
-    return await response.json();
-  } catch (error) {
-    return null;
-  }
 }
