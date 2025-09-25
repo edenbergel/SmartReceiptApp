@@ -157,26 +157,40 @@ function inferAmount(text) {
   return Number.parseFloat(normalized);
 }
 
-function inferCategory(merchant, text) {
-  const lower = `${merchant} ${text}`.toLowerCase();
+const CATEGORY_PATTERNS = [
+  { regex: /(grocery|groceries|grocer|supermarket|supermarch|food|restaurant|cafe|meal|resto|snack)/, label: 'Food' },
+  { regex: /(uber|taxi|transport|bus|train|metro|cab|ride|parking|fuel|car rental|rent a car)/, label: 'Transport' },
+  { regex: /(office|supplies|stationery|printer|ink|bureau)/, label: 'Office' },
+  { regex: /(hotel|airbnb|voyage|travel|flight|airline|ticket|booking|lodging|hebergement)/, label: 'Travel' },
+  { regex: /(clinic|pharma|pharmacie|health|medical|doctor|dentist|opticien|hospital)/, label: 'Healthcare' },
+  { regex: /(shopping|retail|boutique|clothing|apparel|mall|store)/, label: 'Shopping' },
+  { regex: /(entertainment|movie|cinema|concert|theatre|show|loisirs)/, label: 'Entertainment' },
+];
 
-  if (/uber|taxi|transport|bus|train/.test(lower)) {
-    return 'Transport';
-  }
-  if (/monoprix|carrefour|market|supermarch/.test(lower)) {
-    return 'Food';
-  }
-  if (/fnac|darty|electronique|boulanger|office/.test(lower)) {
-    return 'Office';
-  }
-  if (/hotel|airbnb|voyage|travel|flight/.test(lower)) {
-    return 'Travel';
-  }
-  if (/clinic|pharma|pharmacie|health/.test(lower)) {
-    return 'Healthcare';
+function inferCategory(merchant, text, hint) {
+  const sources = [normalizeCategoryHint(hint), merchant, text];
+
+  for (const source of sources) {
+    const matched = matchCategory(source);
+    if (matched) {
+      return matched;
+    }
   }
 
   return 'Other';
+}
+
+function matchCategory(source) {
+  if (!source) {
+    return undefined;
+  }
+  const lower = source.toString().toLowerCase();
+  for (const { regex, label } of CATEGORY_PATTERNS) {
+    if (regex.test(lower)) {
+      return label;
+    }
+  }
+  return undefined;
 }
 
 function mapMindeePrediction(fields, inference, response) {
@@ -195,16 +209,8 @@ function mapMindeePrediction(fields, inference, response) {
   ]);
   const amount = normalizeMindeeAmount(rawAmount);
 
-  const baseCategory =
-    getMindeeValue(fields, ['expense_category', 'purchase_category', 'category']) ??
-    inferCategory(merchant, rawText ?? '') ??
-    'Other';
-  const subCategory = getMindeeValue(fields, ['purchase_subcategory', 'expense_subcategory']);
-  const category = subCategory
-    ? [baseCategory !== 'Other' ? baseCategory : undefined, subCategory]
-        .filter(Boolean)
-        .join(' · ')
-    : baseCategory;
+  const rawCategoryHint = getMindeeValue(fields, ['expense_category', 'purchase_category', 'category']);
+  const category = inferCategory(merchant, rawText ?? '', rawCategoryHint);
 
   const rawDate = getMindeeValue(fields, ['date', 'purchase_date', 'invoice_date', 'datetime']);
   const localeInfo = getMindeeValue(fields, ['locale']);
@@ -532,4 +538,26 @@ function normalizeMindeeDate(raw, locale) {
 
   // fallback to existing logic
   return inferDate(raw);
+}
+
+function normalizeCategoryHint(value) {
+  if (!value) {
+    return undefined;
+  }
+  if (Array.isArray(value)) {
+    return normalizeCategoryHint(value.find((entry) => entry));
+  }
+  if (typeof value === 'object') {
+    const primary = value.value ?? value.content ?? value.label ?? value.name;
+    if (primary) {
+      return normalizeCategoryHint(primary);
+    }
+    return normalizeCategoryHint(Object.values(value));
+  }
+  const cleaned = value
+    .toString()
+    .replace(/\bmisc\w*\b/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return cleaned.length > 0 ? cleaned : undefined;
 }
