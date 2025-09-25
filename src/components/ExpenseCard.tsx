@@ -1,5 +1,5 @@
 import { memo } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Euro, Receipt } from 'lucide-react-native';
 
 import { GlassSurface } from './GlassSurface';
@@ -15,10 +15,11 @@ export interface ExpenseItem {
 
 interface ExpenseCardProps {
   expense: ExpenseItem;
+  onPress?: () => void;
 }
 
-export const ExpenseCard = memo(({ expense }: ExpenseCardProps) => {
-  return (
+export const ExpenseCard = memo(({ expense, onPress }: ExpenseCardProps) => {
+  const content = (
     <GlassSurface variant="strong" style={styles.card}>
       <View style={styles.row}>
         <View style={styles.leftColumn}>
@@ -40,11 +41,34 @@ export const ExpenseCard = memo(({ expense }: ExpenseCardProps) => {
       </View>
     </GlassSurface>
   );
+
+  if (!onPress) {
+    return content;
+  }
+
+  return (
+    <Pressable
+      accessibilityRole="button"
+      onPress={onPress}
+      style={({ pressed }) => [styles.pressable, pressed && styles.pressablePressed]}
+    >
+      {content}
+    </Pressable>
+  );
 });
 
 const styles = StyleSheet.create({
+  pressable: {
+    borderRadius: 24,
+    width: '100%',
+    overflow: 'hidden',
+  },
+  pressablePressed: {
+    opacity: 0.9,
+  },
   card: {
     padding: 20,
+    width: '100%',
   },
   row: {
     flexDirection: 'row',

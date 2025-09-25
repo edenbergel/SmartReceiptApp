@@ -56,7 +56,7 @@ app.listen(PORT, () => {
 async function processWithTesseract(file) {
   const { data } = await Tesseract.recognize(file.buffer, 'eng');
   const fields = extractStructuredData(data.text);
-  return { ...fields, rawText: data.text };
+  return { ...fields, rawText: data.text, lineItems: [] };
 }
 
 
@@ -107,7 +107,7 @@ function extractStructuredData(text) {
   const merchant = inferMerchant(lines);
   const date = inferDate(text);
   const amount = inferAmount(text);
-  const category = inferCategory(merchant, text);
+  const category = inferCategory(merchant, text, undefined);
 
   return {
     merchant,
@@ -217,13 +217,36 @@ function mapMindeePrediction(fields, inference, response) {
   const localeValue = resolveLocale(localeInfo);
   const parsedDate = normalizeMindeeDate(rawDate, localeValue);
 
+  const lineItemsField =
+    getMindeeField(fields, 'line_items') ??
+    getMindeeField(fields, 'items') ??
+    getMindeeField(fields, 'products');
+  const lineItems = normalizeMindeeLineItems(lineItemsField);
+
   return {
     merchant,
     date: parsedDate,
     amount,
     category,
     rawText,
+    lineItems,
   };
+}
+
+function getMindeeField(fields, fieldName) {
+  if (!fields || !fieldName) {
+    return undefined;
+  }
+
+  if (typeof fields.get === 'function') {
+    return fields.get(fieldName);
+  }
+
+  if (typeof fields === 'object') {
+    return fields[fieldName];
+  }
+
+  return undefined;
 }
 
 function extractMindeeInference(response) {
@@ -379,6 +402,51 @@ function unwrapMindeeValue(field) {
   }
 
   return undefined;
+}
+
+function normalizeMindeeLineItems(field) {
+  const unwrapped = unwrapMindeeValue(field);
+  if (!Array.isArray(unwrapped)) {
+    return [];
+  }
+
+  return unwrapped
+    .map((rawItem) => {
+      if (!rawItem || typeof rawItem !== 'object') {
+        return undefined;
+      }
+
+      const description =
+        rawItem.description ??
+        rawItem.product ??
+        rawItem.name ??
+        rawItem.title ??
+        rawItem.label ??
+        '';
+
+      const quantityRaw = rawItem.quantity ?? rawItem.qty ?? rawItem.count ?? 1;
+      const quantity = Number.isFinite(Number(quantityRaw)) ? Number(quantityRaw) : undefined;
+
+      const unitPriceRaw = rawItem.unit_price ?? rawItem.unitPrice ?? rawItem.price_unit ?? rawItem.price;
+      const unitPrice = Number.isFinite(Number(unitPriceRaw)) ? Number(unitPriceRaw) : undefined;
+
+      const totalRaw =
+        rawItem.total_incl ??
+        rawItem.total_excl ??
+        rawItem.total ??
+        rawItem.amount ??
+        rawItem.value ??
+        (quantity && unitPrice ? quantity * unitPrice : undefined);
+      const total = Number.isFinite(Number(totalRaw)) ? Number(totalRaw) : undefined;
+
+      return {
+        description: typeof description === 'string' && description.trim().length > 0 ? description.trim() : 'Article',
+        quantity,
+        unitPrice,
+        total,
+      };
+    })
+    .filter((item) => item !== undefined);
 }
 
 function resolveLocale(locale) {

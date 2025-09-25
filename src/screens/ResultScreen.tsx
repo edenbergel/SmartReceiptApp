@@ -124,6 +124,7 @@ export function ResultScreen({
         amount: Number(amount),
         category,
         date: formatToFrench(selectedDate),
+        lineItems: extractedData?.lineItems ?? [],
       })
     );
 

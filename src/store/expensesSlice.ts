@@ -1,11 +1,19 @@
 import { createSlice, PayloadAction } from '@reduxjs/toolkit';
 
+export interface ExpenseLineItem {
+  description: string;
+  quantity?: number;
+  unitPrice?: number;
+  total?: number;
+}
+
 export interface Expense {
   id: string;
   date: string;
   merchant: string;
   amount: number;
   category: string;
+  lineItems?: ExpenseLineItem[];
 }
 
 export interface ExpensesState {
@@ -20,6 +28,9 @@ const initialState: ExpensesState = {
       merchant: 'Monoprix',
       amount: 23.45,
       category: 'Food',
+      lineItems: [
+        { description: 'Courses alimentaires', quantity: 1, total: 23.45 },
+      ],
     },
     {
       id: '2',
@@ -27,6 +38,9 @@ const initialState: ExpensesState = {
       merchant: 'Uber',
       amount: 12.8,
       category: 'Transport',
+      lineItems: [
+        { description: 'Trajet centre-ville', quantity: 1, total: 12.8 },
+      ],
     },
     {
       id: '3',
@@ -34,6 +48,9 @@ const initialState: ExpensesState = {
       merchant: 'Starbucks',
       amount: 4.9,
       category: 'Food',
+      lineItems: [
+        { description: 'Latte', quantity: 1, total: 4.9 },
+      ],
     },
   ],
 };
@@ -43,7 +60,11 @@ const expensesSlice = createSlice({
   initialState,
   reducers: {
     addExpense: (state, action: PayloadAction<Expense>) => {
-      state.items.unshift(action.payload);
+      const payload = {
+        ...action.payload,
+        lineItems: action.payload.lineItems ?? [],
+      };
+      state.items.unshift(payload);
     },
   },
 });

@@ -9,6 +9,12 @@ export interface ExtractedData {
   category: string;
   imageUri?: string;
   rawText?: string;
+  lineItems?: Array<{
+    description: string;
+    quantity?: number;
+    unitPrice?: number;
+    total?: number;
+  }>;
 }
 
 interface ScanState {

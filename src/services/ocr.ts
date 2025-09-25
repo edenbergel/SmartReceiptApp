@@ -6,6 +6,12 @@ export interface OcrResponse {
   amount: number;
   category: string;
   rawText?: string;
+  lineItems?: Array<{
+    description: string;
+    quantity?: number;
+    unitPrice?: number;
+    total?: number;
+  }>;
 }
 
 interface UploadOptions {
