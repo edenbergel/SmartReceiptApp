@@ -81,6 +81,21 @@ export function ResultScreen({
 
   useEffect(() => {
     if (!extractedData) {
+      return;
+    }
+
+    setSelectedDate(parseDate(extractedData.date));
+    setMerchant(extractedData.merchant ?? "");
+    setAmount(
+      typeof extractedData.amount === "number" && !Number.isNaN(extractedData.amount)
+        ? extractedData.amount.toString()
+        : ""
+    );
+    setCategory(extractedData.category ?? categories[0]);
+  }, [extractedData]);
+
+  useEffect(() => {
+    if (!extractedData) {
       navigation.replace("Dashboard");
     }
   }, [extractedData, navigation]);

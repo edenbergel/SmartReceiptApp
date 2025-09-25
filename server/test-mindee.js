@@ -26,8 +26,13 @@ async function testMindee() {
       },
     });
 
+    const inference =
+      response?.document?.inference ??
+      response?.inference ??
+      response?.rawHttp?.inference;
+
     console.log('✅ Réponse Mindee :');
-    console.log(JSON.stringify(response.document, null, 2));
+    console.log(JSON.stringify(inference, null, 2));
   } catch (err) {
     console.error('❌ Erreur :', err.message);
   }
