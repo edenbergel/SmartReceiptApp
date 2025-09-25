@@ -8,12 +8,14 @@ export function extractStructuredData(text) {
   const date = inferDate(text);
   const amount = inferAmount(text);
   const category = inferCategory(merchant, text, undefined);
+  const lineItems = extractLineItems(lines);
 
   return {
     merchant,
     date,
     amount,
     category,
+    lineItems,
   };
 }
 
@@ -79,6 +81,66 @@ export function inferCategory(merchant, text, hint) {
   return 'Other';
 }
 
+export function extractLineItems(lines) {
+  const items = [];
+  const totalKeywords = ['total', 'subtotal', 'tva', 'tax', 'tip', 'gratuity', 'change'];
+
+  for (const rawLine of lines) {
+    if (!rawLine || rawLine.length < 4) {
+      continue;
+    }
+
+    const amountMatch = rawLine.match(/([0-9]+[\.,][0-9]{2})\s*$/);
+    if (!amountMatch) {
+      continue;
+    }
+
+    const amount = Number.parseFloat(amountMatch[1].replace(',', '.'));
+    if (!Number.isFinite(amount) || amount === 0) {
+      continue;
+    }
+
+    const descriptionPart = rawLine.slice(0, amountMatch.index).trim();
+    if (descriptionPart.length === 0) {
+      continue;
+    }
+
+    const lower = descriptionPart.toLowerCase();
+    if (totalKeywords.some((keyword) => lower.includes(keyword))) {
+      continue;
+    }
+
+    let description = descriptionPart.replace(/[\*•\-]+/g, ' ').trim();
+    let quantity;
+    let unitPrice;
+
+    const quantityMatch = description.match(/(\d+)\s*(x|×)/i);
+    if (quantityMatch) {
+      quantity = Number.parseInt(quantityMatch[1], 10);
+      description = description.replace(quantityMatch[0], '').trim();
+    }
+
+    const unitPriceMatch = description.match(/@?\s*([0-9]+[\.,][0-9]{2})/);
+    if (unitPriceMatch) {
+      unitPrice = Number.parseFloat(unitPriceMatch[1].replace(',', '.'));
+      description = description.replace(unitPriceMatch[0], '').trim();
+    } else if (quantity && quantity > 0) {
+      unitPrice = Math.round((amount / quantity) * 100) / 100;
+    }
+
+    const normalizedDescription = description.length > 0 ? capitalize(description) : 'Article';
+
+    items.push({
+      description: normalizedDescription,
+      quantity,
+      unitPrice,
+      total: amount,
+    });
+  }
+
+  return items;
+}
+
 function matchCategory(source) {
   if (!source) {
     return undefined;
@@ -90,6 +152,14 @@ function matchCategory(source) {
     }
   }
   return undefined;
+}
+
+function capitalize(value) {
+  const trimmed = value.replace(/\s+/g, ' ').trim();
+  if (trimmed.length === 0) {
+    return '';
+  }
+  return trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
 }
 
 export function normalizeCategoryHint(value) {
